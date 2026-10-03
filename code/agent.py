@@ -39,21 +39,37 @@ class Agent:
     stall_rec: object = None                    # disruption that stopped it
     finish_time: int = 0                        # time of the last delivery
     deliveries: int = 0
+    pace: float = 1.0                            # cells per time step; >1 faster
+
+    def time_index(self, t):
+        """Convert simulation time to the path index for this robot.
+
+        A robot with pace=2 moves two cells per time step, so its route is
+        effectively compressed in time. The base route plan remains the same, but
+        the execution timeline is scaled by the robot's speed.
+        """
+        if self.pace <= 0:
+            return len(self.path) - 1
+        return min(len(self.path) - 1, max(0, int(round(t * self.pace))))
 
     def at(self, t):
-        return self.path[t] if t < len(self.path) else self.path[-1]
+        return self.path[self.time_index(t)] if self.path else self.home
 
     def prefix(self, t):
         """Executed part of the path, i.e. cells for times 0..t (new list)."""
-        if t < len(self.path):
-            return self.path[:t + 1]
-        return self.path + [self.path[-1]] * (t + 1 - len(self.path))
+        if not self.path:
+            return [self.home]
+        out = []
+        for i in range(t + 1):
+            out.append(self.path[self.time_index(i)])
+        return out
 
     def remaining_cells(self):
         return [g.cell for g in self.goals[self.gi:]]
 
     def done(self, t):
-        return self.gi >= len(self.goals) and t >= len(self.path) - 1
+        effective_end = max(0, (len(self.path) - 1) / max(self.pace, 1e-9))
+        return self.gi >= len(self.goals) and t >= effective_end
 
     def insert_task(self, task, index):
         self.goals[index:index] = [Goal(task.pickup, "pickup", task),

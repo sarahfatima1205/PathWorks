@@ -19,7 +19,7 @@ def demo(args):
         temporary=args.temporary, seed=args.seed, mode=args.mode,
         comm_radius=args.radius, delay_tolerance=args.tolerance,
         negotiation=not args.no_negotiation, verbose=not args.quiet,
-        record=visual)
+        record=visual, pace_min=args.pace_min, pace_max=args.pace_max)
     r = sim.run()
 
     print("\nDisruptions")
@@ -77,6 +77,10 @@ def main():
     d.add_argument("--temporary", type=float, default=0.0,
                    help="probability that a blockage/breakdown is temporary")
     d.add_argument("--seed", type=int, default=1)
+    d.add_argument("--pace-min", type=float, default=0.8,
+                   help="minimum robot pace (faster than 1 moves more cells per step)")
+    d.add_argument("--pace-max", type=float, default=1.8,
+                   help="maximum robot pace")
     d.add_argument("--mode", choices=["repair", "replan"], default="repair",
                    help="repair = negotiated local repair, replan = baseline")
     d.add_argument("--radius", type=int, default=6, help="communication radius")

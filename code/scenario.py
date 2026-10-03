@@ -25,13 +25,14 @@ class Event:
     delivery: tuple = None
 
 
-def build_scenario(n_agents=10, tasks_per_agent=2, width=32, height=20, seed=0):
+def build_scenario(n_agents=10, tasks_per_agent=2, width=32, height=20,
+                   seed=0, pace_min=0.8, pace_max=1.8):
     rng = random.Random(seed)
     grid = make_warehouse(width, height, n_agents)
     homes = sorted(grid.home_owner, key=grid.home_owner.get)
     agents, tasks = [], []
     for i, home in enumerate(homes):
-        agent = Agent(i, home)
+        agent = Agent(i, home, pace=rng.uniform(pace_min, pace_max))
         for _ in range(tasks_per_agent):
             task = Task(len(tasks), rng.choice(grid.pick_cells),
                         rng.choice(grid.stations), i)
@@ -111,13 +112,18 @@ def resolve_event(sim, ev):
 
 def make_simulation(n_agents=10, tasks_per_agent=2, density=0.05,
                     n_breakdowns=1, n_emergencies=1, temporary=0.0, seed=0,
-                    width=32, height=20, events=None, **sim_kwargs):
+                    width=32, height=20, events=None, pace_min=0.8,
+                    pace_max=1.8, **sim_kwargs):
     """Build an instance, plan it, and schedule disruptions.
 
     `density` is the fraction of aisle cells that turn into dynamic obstacles
-    during the run."""
+    during the run.
+
+    `pace_min` and `pace_max` define the bounds for per-agent movement speeds.
+    Values greater than 1.0 make a robot move faster than the baseline pace.
+    """
     grid, agents, tasks = build_scenario(n_agents, tasks_per_agent, width,
-                                         height, seed)
+                                         height, seed, pace_min, pace_max)
     sim = Simulation(grid, agents, tasks, seed=seed + 7919, **sim_kwargs)
     sim.plan_initial()
     if events is None:
