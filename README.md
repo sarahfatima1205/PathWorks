@@ -31,7 +31,7 @@ disruptions, communication radius, delay tolerance, `--no-negotiation`).
 
 ## Model
 
-- **Map** (`pathworks/grid.py`): 32 x 20 grid, 4-connected moves plus wait,
+- **Map** (`code/grid.py`): 32 x 20 grid, 4-connected moves plus wait,
   one step per time step. Shelf blocks with one-cell aisles, a ring corridor,
   delivery stations on the right wall. Every robot has a private parking cell
   that no other robot may enter, so a parked robot never blocks anyone.
@@ -50,13 +50,14 @@ disruptions, communication radius, delay tolerance, `--no-negotiation`).
 | Type | Effect |
 |---|---|
 | Blocked cell | An aisle cell becomes an obstacle, permanently or for a known duration. Robots whose remaining path uses it are disrupted. |
-| Breakdown | Permanent: the robot becomes an obstacle, the object it carries is lost, and its not-yet-picked-up tasks are re-allocated. Temporary: it stands still for a number of steps. |
+| Breakdown | Permanent: the robot becomes an obstacle and all its unfinished tasks are re-allocated; a load it was carrying is collected from the cell next to it. Temporary: it stands still for a number of steps. |
 | Emergency task | A robot receives a high-priority pickup and delivery that it must serve before its other work. |
 
-Random blockages never disconnect the warehouse and never land on a task's
-pickup cell, so every task stays achievable.
+Random blockages and breakdowns never cut any cell off from the rest of the
+warehouse and never land on a task's pickup cell, so every task stays
+achievable.
 
-## Plan repair algorithm (`pathworks/repair.py`)
+## Plan repair algorithm (`code/repair.py`)
 
 Only disrupted robots react, and each one escalates only as far as needed:
 
@@ -69,13 +70,17 @@ Only disrupted robots react, and each one escalates only as far as needed:
    penalised, which yields the route that needs the fewest neighbours to move.
    It sends a yield REQUEST to exactly the neighbours that route collides
    with. Each of them tries to re-plan around the proposal and answers ACCEPT
-   (with its extra delay) or REJECT. A rejecting neighbour becomes a hard
-   constraint and the initiator proposes again. The deal is committed only if
+   (with its extra delay). A neighbour that cannot fit its own tasks around
+   the proposal offers to step aside to the nearest cell where it is in
+   nobody's way and resume later; if even that is impossible it answers
+   REJECT, becomes a hard constraint, and the initiator proposes again. The deal is committed only if
    it saves at least `gain_per_agent` steps per extra robot it alters compared
    with self-repair; an emergency task always takes the faster option.
 2. **Broadcast.** The same protocol with the whole team as candidates.
-3. **Safe stop.** The robot holds its cell and retries every few steps; robots
-   routed through that cell repair themselves.
+3. **Safe stop.** The robot holds its cell and retries with increasing
+   back-off, again alone first and then by negotiating; robots routed through
+   that cell repair themselves. Plans changed by a retry are charged to the
+   disruption that caused the stop.
 
 A broken robot's open tasks are re-allocated by a contract-net auction. Bids
 are estimated completion times, with a penalty for robots whose plan is still
@@ -88,12 +93,18 @@ collision-free after each repair.
 
 ## Evaluation
 
-`python main.py experiments` runs 260 simulations (10 seeds per setting) and
-writes `results/runs.csv`, `results/summary.csv` and the plots. Each run has
-two tasks per robot, one permanent breakdown, one emergency task and
-`density x (number of aisle cells)` permanent blockages at random times. The
-baseline (`--mode replan`) discards all plans at every disruption and re-runs
-prioritized planning for the whole team from the current positions.
+`python main.py experiments` runs 780 simulations (20 seeds per setting, three
+methods) and writes `results/runs.csv`, `results/summary.csv` and the plots.
+Each run has two tasks per robot, one permanent breakdown, one emergency task
+and `density x (number of aisle cells)` permanent blockages at random times.
+
+Methods compared:
+
+- **Repair**: the algorithm above.
+- **Full replan** (`--mode replan`): baseline that discards all plans at every
+  disruption and re-runs prioritized planning for the whole team from the
+  current positions.
+- **Self-repair only** (`--no-negotiation`): ablation without levels 1 and 2.
 
 Metrics:
 
@@ -105,43 +116,65 @@ Team size, at 5% obstacle density:
 
 | Robots | Original plan | Repair: total | Replan: total | Directly disrupted | Repair: plans changed | Replan: plans changed |
 |---:|---:|---:|---:|---:|---:|---:|
-| 5  | 438.0  | 484.1  | 497.4  | 1.17 | 1.21 | 1.47 |
-| 10 | 900.5  | 966.8  | 968.4  | 2.03 | 2.06 | 2.96 |
-| 20 | 1799.2 | 1945.5 | 1903.5 | 3.64 | 3.78 | 6.82 |
-| 30 | 2826.5 | 3036.2 | 3082.2 | 5.60 | 5.79 | 12.98 |
-| 40 | 3838.5 | 4140.5 | 4193.9 | 6.93 | 7.10 | 17.48 |
+| 5  | 425.0  | 464.7  | 471.9  | 1.10 | 1.16 | 1.39 |
+| 10 | 880.6  | 956.3  | 950.0  | 1.99 | 2.04 | 3.02 |
+| 15 | 1327.7 | 1413.4 | 1422.6 | 2.53 | 2.59 | 4.37 |
+| 20 | 1794.1 | 1921.4 | 1896.3 | 3.58 | 3.70 | 6.65 |
+| 25 | 2300.4 | 2495.5 | 2497.8 | 4.99 | 5.11 | 9.56 |
+| 30 | 2799.6 | 3060.2 | 3033.4 | 5.97 | 6.14 | 12.28 |
+| 40 | 3807.1 | 4152.6 | 4134.2 | 7.29 | 7.51 | 17.74 |
 
-Obstacle density, with 20 robots:
+Obstacle density, with 20 robots (original plan: 1794.1 steps):
 
 | Density | Repair: total | Overhead | Replan: total | Repair: plans changed | Replan: plans changed |
 |---:|---:|---:|---:|---:|---:|
-| 0%   | 1813.8 | 0.8%  | 1809.8 | 2.85 | 12.20 |
-| 2.5% | 1854.1 | 3.1%  | 1847.4 | 3.48 | 7.15 |
-| 5%   | 1945.5 | 8.2%  | 1903.5 | 3.78 | 6.82 |
-| 10%  | 2033.3 | 13.1% | 1971.1 | 3.47 | 6.56 |
-| 15%  | 2360.3 | 31.2% | 2510.9 | 4.19 | 7.94 |
+| 0%   | 1835.4 | 2.3%  | 1824.9 | 3.12 | 10.95 |
+| 2.5% | 1864.9 | 3.9%  | 1857.3 | 3.65 | 7.01 |
+| 5%   | 1921.4 | 7.1%  | 1896.3 | 3.70 | 6.65 |
+| 7.5% | 2047.9 | 14.2% | 2022.1 | 3.98 | 6.95 |
+| 10%  | 2141.5 | 19.5% | 2162.1 | 4.18 | 7.05 |
+| 15%  | 2627.1 | 46.6% | 2640.1 | 4.47 | 7.29 |
 
-- Repair changes almost exactly the robots the disruption hit directly (about
-  0.1 to 0.2 extra per disruption); full replanning changes about twice as
-  many, and the gap widens with team size.
-- Total time is within a few percent of full replanning in every setting,
-  sometimes better and sometimes worse.
-- By type, repair changes 3.8 plans for a blocked cell, 7.1 for a breakdown
-  (this includes the robots that take over its tasks) and 1.6 for an emergency
-  task; replanning changes 7.0, 12.6 and 12.9.
-- No collisions occurred in any run. About 98% of tasks are delivered; the
-  rest are mostly objects on board the robot that broke down.
+Findings:
+
+- **Plans changed.** Repair alters almost exactly the robots the disruption
+  hit directly (0.05 to 0.25 extra per disruption; 0.5 at 0% density, where
+  the only disruptions are the breakdown and the emergency task). Full replanning alters
+  about twice as many, and the gap widens with team size: 7.5 against 17.7
+  plans at 40 robots.
+- **Total time.** Repair and full replanning are within about 1.5% of each
+  other in every setting, with neither consistently ahead. Local repair costs
+  essentially nothing in solution quality.
+- **Team size.** Total time grows linearly with the number of robots and the
+  overhead over the undisturbed plan stays at 6 to 10%. Plans changed per
+  disruption grows with team size because more robots route through any
+  given cell.
+- **Obstacle density.** Overhead grows faster than linearly, from 2% with no
+  blockages to 47% at 15%, as detours get longer and aisles turn into dead
+  ends. Plans changed per disruption rises only slightly (3.1 to 4.5).
+- **By disruption type.** Repair changes 4.1 plans for a blocked cell, 7.4 for
+  a breakdown (including the robots that take over its tasks) and 1.6 for an
+  emergency task; replanning changes 6.9, 13.2 and 12.7.
+- **What negotiation buys.** About 96% of disrupted robots repair alone at
+  level 0 (sampled over 40 runs). Negotiation
+  matters for the rest: without it, robots that cannot re-plan alone block
+  each other, and 5 of 260 runs end with tasks never delivered (41 tasks);
+  with it every run completes. It does not noticeably shorten emergency
+  response time (45 against 47 steps at 20 robots).
+- **Safety and completion.** No collisions in any of the 780 runs. Repair
+  delivers 99.9% of tasks; the remainder are tasks whose pickup cell ended up
+  under a broken-down robot.
 
 ## Layout
 
 ```
 main.py                  command line entry point
-pathworks/grid.py        warehouse map, dynamic obstacles, BFS distance maps
-pathworks/planner.py     Space-Time A*, reservation table
-pathworks/agent.py       Agent, Task, Goal
-pathworks/simulation.py  initial planning, execution loop, metrics
-pathworks/repair.py      plan repair, negotiation, auction, replan baseline
-pathworks/scenario.py    instance and disruption generation
-pathworks/visualize.py   animation
-pathworks/experiments.py sweeps, CSV output, plots
+code/grid.py        warehouse map, dynamic obstacles, BFS distance maps
+code/planner.py     Space-Time A*, reservation table
+code/agent.py       Agent, Task, Goal
+code/simulation.py  initial planning, execution loop, metrics
+code/repair.py      plan repair, negotiation, auction, replan baseline
+code/scenario.py    instance and disruption generation
+code/visualize.py   animation
+code/experiments.py sweeps, CSV output, plots
 ```

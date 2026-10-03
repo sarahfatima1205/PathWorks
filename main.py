@@ -91,7 +91,7 @@ def main():
     d.set_defaults(func=demo)
 
     e = sub.add_parser("experiments", help="run the evaluation sweeps")
-    e.add_argument("--seeds", type=int, default=10)
+    e.add_argument("--seeds", type=int, default=20)
     e.add_argument("--out", default="results")
     e.add_argument("--workers", type=int, default=None)
     e.set_defaults(func=experiments)

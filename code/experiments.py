@@ -9,8 +9,10 @@ from .scenario import make_simulation
 
 AGENT_COUNTS = [5, 10, 15, 20, 25, 30, 40]
 DENSITIES = [0.0, 0.025, 0.05, 0.075, 0.10, 0.15]
-MODES = ["repair", "replan"]
-MODE_LABEL = {"repair": "PathWorks plan repair", "replan": "Full replan (baseline)"}
+MODES = ["repair", "replan"]          # plotted
+ALL_MODES = MODES + ["self"]          # "self" = repair without negotiation
+MODE_LABEL = {"repair": "PathWorks plan repair", "replan": "Full replan (baseline)",
+              "self": "Self-repair only (no negotiation)"}
 MODE_COLOR = {"repair": "#2a78d6", "replan": "#eb6834"}
 MUTED = "#898781"
 KINDS = ["block", "breakdown", "emergency"]
@@ -19,7 +21,8 @@ FIELDS = ["experiment", "mode", "agents", "density", "seed", "tasks",
           "initial_total", "overhead_pct", "disruptions", "disruptions_hit",
           "affected_per_disruption", "changed_per_disruption",
           "changed_per_hit", "max_changed", "messages", "yielders", "stalls",
-          "repair_ms", "plan_ms", "collisions",
+          "repair_ms", "plan_ms", "collisions", "emergency_response", "recovered",
+          "steps",
           "changed_block", "n_block", "changed_breakdown", "n_breakdown",
           "changed_emergency", "n_emergency"]
 
@@ -27,7 +30,8 @@ FIELDS = ["experiment", "mode", "agents", "density", "seed", "tasks",
 def run_one(job):
     experiment, mode, n_agents, density, seed = job
     sim = make_simulation(n_agents=n_agents, density=density, seed=seed,
-                          mode=mode)
+                          mode="replan" if mode == "replan" else "repair",
+                          negotiation=mode != "self")
     r = sim.run()
     r.update(experiment=experiment, mode=mode, density=density, seed=seed)
     r["overhead_pct"] = 100.0 * (r["total_time"] - r["initial_total"]) \
@@ -37,11 +41,11 @@ def run_one(job):
     return r
 
 
-def run_all(out_dir="results", seeds=10, fixed_agents=20, fixed_density=0.05,
+def run_all(out_dir="results", seeds=20, fixed_agents=20, fixed_density=0.05,
             workers=None):
     os.makedirs(out_dir, exist_ok=True)
     jobs = []
-    for mode in MODES:
+    for mode in ALL_MODES:
         for seed in range(seeds):
             jobs += [("agents", mode, n, fixed_density, seed)
                      for n in AGENT_COUNTS]
@@ -71,7 +75,7 @@ def summarise(rows):
     out = []
     for exp, key in (("agents", "agents"), ("density", "density")):
         for x in sorted({r[key] for r in rows if r["experiment"] == exp}):
-            for mode in MODES:
+            for mode in ALL_MODES:
                 sel = [r for r in rows if r["experiment"] == exp
                        and r[key] == x and r["mode"] == mode]
                 avg = lambda k: round(mean(r[k] for r in sel), 2)
@@ -89,6 +93,12 @@ def summarise(rows):
                     "messages": avg("messages"),
                     "delivered_pct": round(100 * sum(r["delivered"] for r in sel)
                                            / sum(r["tasks"] for r in sel), 1),
+                    "unfinished_pct": round(100 * sum(r["unfinished"] for r in sel)
+                                            / sum(r["tasks"] for r in sel), 2),
+                    "safe_stops": avg("stalls"),
+                    "emergency_response": round(mean(
+                        [r["emergency_response"] for r in sel
+                         if r["emergency_response"] is not None] or [0]), 1),
                     "repair_ms": avg("repair_ms"),
                     "collisions": sum(r["collisions"] for r in sel),
                 })
@@ -98,7 +108,8 @@ def summarise(rows):
 def print_summary(summary):
     cols = ["x", "mode", "total_time", "no_disruption_total", "overhead_pct",
             "affected_per_disruption", "changed_per_disruption",
-            "max_changed", "messages", "delivered_pct", "repair_ms"]
+            "max_changed", "messages", "delivered_pct", "safe_stops",
+            "emergency_response"]
     for exp in ("agents", "density"):
         print(f"\n=== varying {exp} ===")
         print("  ".join(f"{c[:14]:>14}" for c in cols))

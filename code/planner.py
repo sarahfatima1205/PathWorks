@@ -120,17 +120,29 @@ def space_time_astar(grid, agent_id, start, t0, goals, hard, soft=None,
 
 
 def path_conflicts(path, t0, res):
-    """Ids of the agents in `res` that `path` (starting at time t0) collides with."""
+    """Ids of all agents in `res` that `path` (starting at time t0) collides
+    with. One move can collide with two agents at once (it enters a cell one
+    agent is about to occupy while swapping with another), so every kind of
+    conflict is checked separately."""
     hit = set()
+    occ, rest = res.occ, res.rest
     for i in range(1, len(path)):
-        b = res.blocker(path[i - 1], path[i], t0 + i)
+        c_from, c_to, t = path[i - 1], path[i], t0 + i
+        b = occ.get((c_to, t))
         if b is not None:
             hit.add(b)
-    r = res.rest.get(path[-1])
+        r = rest.get(c_to)
+        if r is not None and t >= r[0]:
+            hit.add(r[1])
+        if c_from != c_to:
+            b = occ.get((c_to, t - 1))
+            if b is not None and occ.get((c_from, t)) == b:
+                hit.add(b)
+    r = rest.get(path[-1])
     if r is not None:
         hit.add(r[1])
     end_t = t0 + len(path) - 1
-    for (c, t), b in res.occ.items():
+    for (c, t), b in occ.items():
         if c == path[-1] and t > end_t:
             hit.add(b)
     return hit

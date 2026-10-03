@@ -98,15 +98,21 @@ class Grid:
         return self.dist_map(b).get(a, INF)
 
     def connected_if_blocked(self, cell):
-        """Would the free space stay connected if `cell` were blocked forever?"""
+        """Would every free cell stay reachable if `cell` were blocked forever?
+
+        Parking cells are private dead ends, so they may be reached but never
+        travelled through."""
         free = [c for c in self.free_cells
                 if c != cell and not self.perm_blocked(c)]
-        if not free:
+        start = next((c for c in free if c not in self.home_owner), None)
+        if start is None:
             return False
-        seen = {free[0]}
-        queue = deque([free[0]])
+        seen = {start}
+        queue = deque([start])
         while queue:
             c = queue.popleft()
+            if c in self.home_owner:
+                continue
             for n in self._nbrs[c]:
                 if n != cell and n not in seen and not self.perm_blocked(n):
                     seen.add(n)

@@ -8,7 +8,6 @@ from .grid import INF
 from .planner import Reservations, goal_times, space_time_astar
 from .repair import Repairer
 
-RETRY_INTERVAL = 3  # a stalled agent retries planning every few steps
 
 
 class Simulation:
@@ -99,7 +98,7 @@ class Simulation:
         for a in self.agents:
             path = self.plan_agent(a, 0, hard)
             if path is None:
-                a.status, a.stalled_since = "stalled", 0
+                a.status, a.stalled_since, a.retry_at = "stalled", 0, 3
                 self.say(f"A{a.id}: no initial plan, waiting at home")
             else:
                 a.path = path
@@ -170,12 +169,9 @@ class Simulation:
             if resolve_event(self, ev):
                 self.records.append(self.repairer.handle(ev, t))
         for a in self.agents:
-            if a.status == "stalled" and t > a.stalled_since \
-                    and (t - a.stalled_since) % RETRY_INTERVAL == 0:
-                path = self.plan_agent(a, t, self.reservations(t, {a.id}))
-                if path is not None:
-                    self.set_path(a, path)
-                    self.say(f"A{a.id}: found a way out, resuming")
+            if a.status == "stalled" and t >= a.retry_at \
+                    and self.repairer.retry(a, t):
+                self.say(f"A{a.id}: found a way out, resuming")
 
         seen = {}
         for a in self.agents:
@@ -247,6 +243,8 @@ class Simulation:
             status[k.status] += 1
         recs = self.records
         hit = [r for r in recs if r.affected]
+        urgent = [k.t_delivery - k.t_created for k in self.tasks
+                  if k.emergency and k.status == "delivered"]
         return {
             "agents": len(self.agents),
             "tasks": len(self.tasks),
@@ -270,6 +268,10 @@ class Simulation:
                        sum(1 for r in recs if r.kind == kind)]
                 for kind in ("block", "breakdown", "emergency")},
             "max_changed": max((len(r.changed) for r in recs), default=0),
+            "emergency_response":
+                sum(urgent) / len(urgent) if urgent else None,
+            "recovered": sum(1 for k in self.tasks
+                             if k.recovered and k.status == "delivered"),
             "messages": sum(r.messages for r in recs),
             "yielders": sum(r.yielders for r in recs),
             "stalls": sum(len(r.stalled) for r in recs),

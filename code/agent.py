@@ -10,6 +10,7 @@ class Task:
     delivery: tuple
     owner: int
     emergency: bool = False
+    recovered: bool = False   # load taken over from a broken-down robot
     status: str = "pending"   # pending -> carried -> delivered | lost
     t_created: int = 0
     t_pickup: int = None
@@ -33,6 +34,9 @@ class Agent:
     status: str = "active"                      # active | stalled | broken
     frozen_until: int = 0                       # temporary breakdown
     stalled_since: int = 0
+    retry_at: int = 0
+    retry_gap: int = 3
+    stall_rec: object = None                    # disruption that stopped it
     finish_time: int = 0                        # time of the last delivery
     deliveries: int = 0
 
